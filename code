@@ -1,0 +1,77 @@
+# =========================
+# Random Forest - Auto Threshold Pipeline
+# =========================
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import (confusion_matrix, classification_report,
+                              roc_curve, roc_auc_score)
+
+# Load
+df = pd.read_csv("cleaned_breast_cancer_data.csv")
+X = df.drop("diagnosis", axis=1)
+y = df["diagnosis"]
+
+# Split
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+# Train
+rf = RandomForestClassifier(n_estimators=200, random_state=42)
+rf.fit(X_train, y_train)
+
+# Probabilities + ROC
+y_probs = rf.predict_proba(X_test)[:, 1]
+fpr, tpr, thresholds = roc_curve(y_test, y_probs)
+auc = roc_auc_score(y_test, y_probs)
+print(f"AUC: {auc:.4f}")
+
+# === Auto Threshold Search ===
+# Goal: highest threshold where false negatives = 0
+best_threshold = 0.5
+best_precision = 0
+
+for t in thresholds:
+    y_temp = (y_probs >= t).astype(int)
+    tn, fp, fn, tp = confusion_matrix(y_test, y_temp).ravel()
+    precision = tp / (tp + fp) if (tp + fp) != 0 else 0
+    if fn == 0 and precision > best_precision:
+        best_threshold = t
+        best_precision = precision
+
+print(f"\nAuto-selected Threshold : {best_threshold:.4f}")
+print(f"Precision at threshold  : {best_precision:.4f}")
+
+# === Final Prediction with Auto Threshold ===
+y_pred_final = (y_probs >= best_threshold).astype(int)
+
+print("\n=== Classification Report ===")
+print(classification_report(y_test, y_pred_final))
+
+# Confusion Matrix
+cm = confusion_matrix(y_test, y_pred_final)
+sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
+            xticklabels=["Benign", "Malignant"],
+            yticklabels=["Benign", "Malignant"])
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.title(f"Confusion Matrix (Threshold = {best_threshold:.4f})")
+plt.show()
+
+# Feature Importance
+feature_importance_df = pd.DataFrame({
+    "Feature": X.columns,
+    "Importance": rf.feature_importances_
+}).sort_values(by="Importance", ascending=False).head(10)
+
+plt.figure(figsize=(10, 5))
+sns.barplot(data=feature_importance_df, x="Importance", y="Feature")
+plt.title("Top 10 Most Important Features")
+plt.tight_layout()
+plt.show()
